@@ -1,5 +1,6 @@
 /**
- * Public Liquid Album - Realtime Firebase Firestore Integration (No Storage Required)
+ * Public Liquid Album - Realtime Firebase Firestore Integration
+ * Full playable video and image support without Firebase Storage requirements.
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -98,6 +99,15 @@ function initRealtimeListener() {
   });
 }
 
+// Check if media URL is a playable video format
+function isPlayableVideo(item) {
+  if (item.type !== 'video') return false;
+  if (!item.url) return false;
+  // If stored as old image fallback, treat as photo so lightbox/feed opens properly
+  if (item.url.startsWith('data:image/')) return false;
+  return true;
+}
+
 // Render dynamic Date-grouped feed
 function renderFeed() {
   albumFeed.innerHTML = '';
@@ -153,8 +163,8 @@ function createMediaCard(item) {
   card.dataset.id = item.id;
 
   let mediaTag = '';
-  if (item.type === 'video') {
-    mediaTag = `<video src="${item.url}" class="media-content" muted preload="metadata"></video>
+  if (isPlayableVideo(item)) {
+    mediaTag = `<video src="${item.url}" class="media-content" muted playsinline preload="metadata"></video>
                 <div class="video-badge">
                   <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                   <span>VIDEO</span>
@@ -198,10 +208,11 @@ function openLightbox(item) {
   activePreviewItem = item;
   lightboxDateText.textContent = item.date || 'PUBLIC ALBUM';
 
-  if (item.type === 'video') {
+  if (isPlayableVideo(item)) {
     lightboxImg.classList.add('hidden');
     lightboxVideo.classList.remove('hidden');
     lightboxVideo.src = item.url;
+    lightboxVideo.controls = true;
     lightboxVideo.play().catch(() => {});
   } else {
     lightboxVideo.classList.add('hidden');
@@ -271,6 +282,7 @@ function handleFileSelected(e) {
     uploadPreviewImg.classList.add('hidden');
     uploadPreviewVideo.classList.remove('hidden');
     uploadPreviewVideo.src = localPreviewUrl;
+    uploadPreviewVideo.controls = true;
   } else {
     uploadPreviewVideo.classList.add('hidden');
     uploadPreviewImg.classList.remove('hidden');
@@ -298,14 +310,14 @@ async function processUpload() {
 
   confirmUploadBtn.disabled = true;
   uploadStatusText.classList.remove('hidden');
-  uploadStatusText.textContent = "Compressing & saving to database...";
+  uploadStatusText.textContent = "Processing and saving...";
 
   try {
     const dataUrl = await convertFileToDataURL(pendingUploadFile);
     const isVideo = pendingUploadFile.type.startsWith('video/');
     const todayStr = getTodayFormatted();
 
-    // Save compressed Data URL metadata directly in Firestore
+    // Save playable Data URL directly in Firestore
     await addDoc(photosCollection, {
       type: isVideo ? 'video' : 'photo',
       url: dataUrl,
@@ -318,15 +330,16 @@ async function processUpload() {
     closeUploadModal();
   } catch (err) {
     console.error("Upload error details:", err);
-    uploadStatusText.textContent = err.message || "Upload failed. Try again.";
+    uploadStatusText.textContent = err.message || "Upload failed. Try a smaller file.";
     confirmUploadBtn.disabled = false;
   }
 }
 
-// High-efficiency compressor converting photos and videos to fit Firestore
+// Convert files to playable Data URLs
 function convertFileToDataURL(file) {
   return new Promise((resolve, reject) => {
     if (file.type.startsWith('image/')) {
+      // Compress photos down to high quality JPEG (< 200 KB)
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
@@ -335,7 +348,6 @@ function convertFileToDataURL(file) {
           let width = img.width;
           let height = img.height;
           
-          // Downscale images to max 800px to ensure base64 string is super light (< 200KB)
           const maxDim = 800;
           if (width > maxDim || height > maxDim) {
             if (width > height) {
@@ -352,68 +364,119 @@ function convertFileToDataURL(file) {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Highly optimized JPEG compression
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.60);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
           resolve(compressedDataUrl);
         };
         img.onerror = () => reject(new Error("Invalid image file."));
         img.src = e.target.result;
       };
-      reader.onerror = () => reject(new Error("Failed to read file."));
+      reader.onerror = () => reject(new Error("Failed to read image file."));
       reader.readAsDataURL(file);
-    } else {
-      // For videos: read file into Base64
-      if (file.size > 950000) {
-        // If video file exceeds Firestore 1MB document limit, capture video keyframe snapshot automatically
-        captureVideoFrame(file).then(resolve).catch(() => {
-          reject(new Error("Video file is too large for database limits."));
-        });
-      } else {
+    } else if (file.type.startsWith('video/')) {
+      // Small videos (< 900 KB) read directly into video data URL
+      if (file.size <= 900000) {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = () => reject(new Error("Failed to read video."));
+        reader.onerror = () => reject(new Error("Failed to read video file."));
         reader.readAsDataURL(file);
+      } else {
+        // Larger videos are re-encoded into 360p WebM format so they play natively
+        compressVideoToDataURL(file).then(resolve).catch(reject);
       }
+    } else {
+      reject(new Error("Unsupported file type."));
     }
   });
 }
 
-// Fallback helper to capture compressed frame snapshot for large videos
-function captureVideoFrame(file) {
+// Re-encode videos to lightweight WebM format under 950KB for playable Firestore storage
+function compressVideoToDataURL(file) {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
-    video.preload = 'metadata';
+    video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;
+    const objectUrl = URL.createObjectURL(file);
 
-    video.onloadeddata = () => {
-      video.currentTime = 0.5;
-    };
-
-    video.onseeked = () => {
+    video.onloadedmetadata = () => {
       const canvas = document.createElement('canvas');
-      let width = video.videoWidth || 640;
-      let height = video.videoHeight || 360;
-      const maxDim = 600;
-      if (width > maxDim || height > maxDim) {
-        if (width > height) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
+      let w = video.videoWidth || 480;
+      let h = video.videoHeight || 360;
+      const maxDim = 360;
+      
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
         } else {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
         }
       }
-      canvas.width = width;
-      canvas.height = height;
+
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, width, height);
-      URL.revokeObjectURL(video.src);
-      resolve(canvas.toDataURL('image/jpeg', 0.60));
+
+      const stream = canvas.captureStream(15);
+      let mimeType = 'video/webm;codecs=vp8';
+      if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+
+      let mediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, {
+          mimeType: mimeType,
+          videoBitsPerSecond: 250000
+        });
+      } catch (err) {
+        URL.revokeObjectURL(objectUrl);
+        return reject(new Error("Video is too large for database. Select a shorter video clip."));
+      }
+
+      const chunks = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        URL.revokeObjectURL(objectUrl);
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        
+        if (blob.size > 950000) {
+          return reject(new Error("Video exceeds 950KB limit for database. Please select a shorter clip."));
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error("Failed to process compressed video."));
+        reader.readAsDataURL(blob);
+      };
+
+      video.play().then(() => {
+        mediaRecorder.start(100);
+        const maxDuration = Math.min(video.duration || 10, 15);
+
+        const drawFrame = () => {
+          if (!video.paused && !video.ended && video.currentTime <= maxDuration) {
+            ctx.drawImage(video, 0, 0, w, h);
+            requestAnimationFrame(drawFrame);
+          } else {
+            if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+          }
+        };
+        drawFrame();
+      }).catch(() => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Video clip is too large. Please select a shorter video."));
+      });
     };
 
-    video.onerror = () => reject(new Error("Failed to process video frame."));
-    video.src = URL.createObjectURL(file);
+    video.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Unable to read video file."));
+    };
+
+    video.src = objectUrl;
   });
 }
 
