@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Public Album</title>
+  <!-- Google Fonts & SVG Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Liquid Ambient Background Orbs -->
+  <div class="glass-bg-orb orb-1"></div>
+  <div class="glass-bg-orb orb-2"></div>
+  <div class="glass-bg-orb orb-3"></div>
+
+  <!-- Header -->
+  <header class="glass-header">
+    <div class="header-brand">
+      <h1 class="header-title">Public Album</h1>
+    </div>
+
+    <div class="header-actions">
+      <!-- Default Action -->
+      <button id="add-btn" class="liquid-btn primary-btn">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <span>ADD YOURS NOW</span>
+      </button>
+
+      <!-- Selection Actions (Hidden by default) -->
+      <div id="selection-bar" class="selection-bar hidden">
+        <span id="selected-count" class="selected-count">0 Selected</span>
+        <button id="download-selected-btn" class="liquid-btn icon-btn" title="Download Selected">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        </button>
+        <button id="delete-selected-btn" class="liquid-btn icon-btn danger-btn" title="Delete Selected">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Feed Container -->
+  <main id="album-feed" class="album-feed">
+    <!-- Dynamic Date Sections Rendered Here -->
+  </main>
+
+  <!-- Hidden File Input -->
+  <input type="file" id="media-file-input" accept="image/*,video/*" class="hidden-input">
+
+  <!-- Modal 1: Add / Upload Disclaimer Modal -->
+  <div id="upload-modal" class="liquid-modal-backdrop hidden">
+    <div class="liquid-modal-card">
+      <div class="modal-icon-wrapper">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+      </div>
+      <h2 class="modal-title">Public Upload Agreement</h2>
+      <div class="modal-body">
+        <p>By proceeding, you explicitly authorize this photo/video to be publicly published in this shared web album.</p>
+        <p class="modal-subtext">You confirm that you hold ownership or necessary authorization for this media. The platform and site owner assume no liability or responsibility for public exposure, downloads, or third-party distribution resulting from this upload.</p>
+        
+        <div id="upload-preview-container" class="preview-container hidden">
+          <img id="upload-preview-img" src="" alt="Preview" class="preview-media hidden">
+          <video id="upload-preview-video" controls class="preview-media hidden"></video>
+        </div>
+
+        <label class="sensitivity-checkbox-label">
+          <input type="checkbox" id="upload-sensitive-check">
+          <span>Mark as NSFW / Sensitive Content</span>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-upload-btn" class="liquid-btn modal-cancel-btn">Cancel</button>
+        <button id="confirm-upload-btn" class="liquid-btn modal-confirm-btn">Agree & Upload</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Download Disclaimer Modal -->
+  <div id="download-modal" class="liquid-modal-backdrop hidden">
+    <div class="liquid-modal-card">
+      <div class="modal-icon-wrapper info-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      </div>
+      <h2 class="modal-title">Download Notice & Liability</h2>
+      <div class="modal-body">
+        <p>You are about to download media uploaded by community users.</p>
+        <p class="modal-subtext">The platform and site owner are not liable if the copyright owner or creator of the photo/video becomes aware of or disputes this content being shared or saved. You assume all responsibility for saved files.</p>
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-download-btn" class="liquid-btn modal-cancel-btn">Cancel</button>
+        <button id="confirm-download-btn" class="liquid-btn modal-confirm-btn">Agree & Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Hold-to-Delete Confirmation Modal -->
+  <div id="delete-modal" class="liquid-modal-backdrop hidden">
+    <div class="liquid-modal-card danger-card">
+      <div class="modal-icon-wrapper danger-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+      </div>
+      <h2 class="modal-title">Confirm Delete</h2>
+      <div class="modal-body">
+        <p>Are you sure you want to permanently delete the selected item(s)?</p>
+        <p class="modal-subtext">To prevent accidental deletion, press and hold the delete button for 1.5 seconds.</p>
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-delete-btn" class="liquid-btn modal-cancel-btn">Cancel</button>
+        <button id="hold-delete-btn" class="liquid-btn modal-hold-delete-btn">
+          <span class="hold-progress-fill" id="hold-progress-fill"></span>
+          <span class="hold-btn-text">HOLD TO DELETE</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
