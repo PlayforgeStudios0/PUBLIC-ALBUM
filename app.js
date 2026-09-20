@@ -18,6 +18,7 @@ import {
 // Cloudinary Credentials
 const CLOUDINARY_CLOUD_NAME = "vvachyus";
 const CLOUDINARY_UPLOAD_PRESET = "public_album";
+const CLOUDINARY_ASSET_FOLDER = "data/assets";
 
 // Firebase Configuration
 const firebaseConfig = {
@@ -297,13 +298,13 @@ async function processUpload() {
 
   try {
     const isVideo = pendingUploadFile.type.startsWith('video/');
-    const resourceType = isVideo ? 'video' : 'image';
     
     const formData = new FormData();
     formData.append('file', pendingUploadFile);
     formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    formData.append('asset_folder', CLOUDINARY_ASSET_FOLDER);
 
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`, {
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, {
       method: 'POST',
       body: formData
     });
