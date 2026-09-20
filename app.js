@@ -1,5 +1,5 @@
 /**
- * Public Liquid Album - Realtime Firebase & Free Public Hosting Integration
+ * Public Liquid Album - Realtime Firebase Firestore Integration
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -292,25 +292,23 @@ function closeUploadModal() {
   confirmUploadBtn.disabled = false;
 }
 
-// Option B: Auto-convert local file to public hosted URL and store in Firestore
+// Convert local file to optimized Data URL and store directly in Firestore
 async function processUpload() {
   if (!pendingUploadFile) return;
 
   confirmUploadBtn.disabled = true;
   uploadStatusText.classList.remove('hidden');
-  uploadStatusText.textContent = "Uploading to public host...";
+  uploadStatusText.textContent = "Processing and saving...";
 
   try {
-    // Host file on public endpoint
-    const publicUrl = await uploadFileToPublicHost(pendingUploadFile);
-    
+    const dataUrl = await convertFileToDataURL(pendingUploadFile);
     const isVideo = pendingUploadFile.type.startsWith('video/');
     const todayStr = getTodayFormatted();
 
-    // Save public link metadata to Firestore
+    // Save Data URL metadata directly into Firestore
     await addDoc(photosCollection, {
       type: isVideo ? 'video' : 'photo',
-      url: publicUrl,
+      url: dataUrl,
       date: todayStr,
       isSensitive: uploadSensitiveCheck.checked,
       timestamp: serverTimestamp()
@@ -320,30 +318,60 @@ async function processUpload() {
     closeUploadModal();
   } catch (err) {
     console.error("Upload error:", err);
-    uploadStatusText.textContent = "Upload failed. Try again.";
+    uploadStatusText.textContent = err.message || "Upload failed. Try again.";
     confirmUploadBtn.disabled = false;
   }
 }
 
-// Free file-to-link host converter
-async function uploadFileToPublicHost(file) {
-  const formData = new FormData();
-  formData.append('file', file);
+// Client-side file compressor and Base64 Data URL converter
+function convertFileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Downscale large photos to fit comfortably within Firestore
+          const maxDim = 1200;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
 
-  const response = await fetch('https://tmpfiles.org/api/v1/upload', {
-    method: 'POST',
-    body: formData
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Compress quality to 75%
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
+        };
+        img.onerror = () => reject(new Error("Invalid image file."));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error("Failed to read file."));
+      reader.readAsDataURL(file);
+    } else {
+      // For videos, convert straight to Data URL
+      if (file.size > 900000) {
+        reject(new Error("Video exceeds 900KB size limit."));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => reject(new Error("Failed to read video."));
+      reader.readAsDataURL(file);
+    }
   });
-
-  if (!response.ok) throw new Error('Host server rejected file.');
-
-  const result = await response.json();
-  if (result.status === 'success' && result.data && result.data.url) {
-    // Convert landing URL to direct downloadable/streamable URL
-    return result.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-  } else {
-    throw new Error('Invalid host response.');
-  }
 }
 
 // Process selected downloads & sensitive toast trigger
