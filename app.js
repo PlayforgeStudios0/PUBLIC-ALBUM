@@ -1,146 +1,183 @@
 /**
- * Breeze Liquid Album - Core Application Script
+ * Public Liquid Album - Realtime Firebase & Free Public Hosting Integration
  */
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Application State
-  let albumData = [];
-  let selectedIds = new Set();
-  let pendingUploadFile = null;
-  let holdTimer = null;
-  let holdStartTime = 0;
-  const HOLD_DURATION_MS = 1500;
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp 
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-  // DOM Elements
-  const albumFeed = document.getElementById('album-feed');
-  const addBtn = document.getElementById('add-btn');
-  const mediaFileInput = document.getElementById('media-file-input');
-  const selectionBar = document.getElementById('selection-bar');
-  const selectedCount = document.getElementById('selected-count');
-  const downloadSelectedBtn = document.getElementById('download-selected-btn');
-  const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+// Firebase Configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCsfoXhvNojL14d9UmfAVqtiHAUECKkSNM",
+  authDomain: "album-76794.firebaseapp.com",
+  projectId: "album-76794",
+  storageBucket: "album-76794.firebasestorage.app",
+  messagingSenderId: "239576375532",
+  appId: "1:239576375532:web:9abf1a4a392962e38685c9"
+};
 
-  // Modal Elements
-  const uploadModal = document.getElementById('upload-modal');
-  const cancelUploadBtn = document.getElementById('cancel-upload-btn');
-  const confirmUploadBtn = document.getElementById('confirm-upload-btn');
-  const uploadPreviewContainer = document.getElementById('upload-preview-container');
-  const uploadPreviewImg = document.getElementById('upload-preview-img');
-  const uploadPreviewVideo = document.getElementById('upload-preview-video');
-  const uploadSensitiveCheck = document.getElementById('upload-sensitive-check');
+// Initialize Firebase & Firestore Database
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const photosCollection = collection(db, "photos");
 
-  const downloadModal = document.getElementById('download-modal');
-  const cancelDownloadBtn = document.getElementById('cancel-download-btn');
-  const confirmDownloadBtn = document.getElementById('confirm-download-btn');
+// App State
+let albumData = [];
+let selectedIds = new Set();
+let pendingUploadFile = null;
+let activePreviewItem = null;
+let holdStartTime = 0;
+const HOLD_DURATION_MS = 1500;
 
-  const deleteModal = document.getElementById('delete-modal');
-  const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
-  const holdDeleteBtn = document.getElementById('hold-delete-btn');
-  const holdProgressFill = document.getElementById('hold-progress-fill');
+// DOM Elements
+const albumFeed = document.getElementById('album-feed');
+const addBtn = document.getElementById('add-btn');
+const mediaFileInput = document.getElementById('media-file-input');
+const selectionBar = document.getElementById('selection-bar');
+const selectedCount = document.getElementById('selected-count');
+const downloadSelectedBtn = document.getElementById('download-selected-btn');
+const deleteSelectedBtn = document.getElementById('delete-selected-btn');
 
-  const toastContainer = document.getElementById('toast-container');
+// Modal Elements
+const uploadModal = document.getElementById('upload-modal');
+const cancelUploadBtn = document.getElementById('cancel-upload-btn');
+const confirmUploadBtn = document.getElementById('confirm-upload-btn');
+const uploadPreviewContainer = document.getElementById('upload-preview-container');
+const uploadPreviewImg = document.getElementById('upload-preview-img');
+const uploadPreviewVideo = document.getElementById('upload-preview-video');
+const uploadSensitiveCheck = document.getElementById('upload-sensitive-check');
+const uploadStatusText = document.getElementById('upload-status-text');
 
-  // Initialize App
-  init();
+const downloadModal = document.getElementById('download-modal');
+const cancelDownloadBtn = document.getElementById('cancel-download-btn');
+const confirmDownloadBtn = document.getElementById('confirm-download-btn');
 
-  async function init() {
-    await fetchAlbumData();
-    renderFeed();
-    attachEventListeners();
-  }
+const deleteModal = document.getElementById('delete-modal');
+const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+const holdDeleteBtn = document.getElementById('hold-delete-btn');
+const holdProgressFill = document.getElementById('hold-progress-fill');
 
-  // Fetch initial media metadata from photos.json in root folder
-  async function fetchAlbumData() {
-    try {
-      const response = await fetch('photos.json');
-      if (response.ok) {
-        albumData = await response.json();
-      } else {
-        albumData = getFallbackData();
-      }
-    } catch (e) {
-      console.warn('Could not load photos.json, using default sample data.');
-      albumData = getFallbackData();
-    }
-  }
+const lightboxModal = document.getElementById('lightbox-modal');
+const lightboxCloseBtn = document.getElementById('lightbox-close-btn');
+const lightboxImg = document.getElementById('lightbox-img');
+const lightboxVideo = document.getElementById('lightbox-video');
+const lightboxDateText = document.getElementById('lightbox-date-text');
+const lightboxDownloadBtn = document.getElementById('lightbox-download-btn');
 
-  // Render dynamic Date-grouped feed
-  function renderFeed() {
-    albumFeed.innerHTML = '';
+const toastContainer = document.getElementById('toast-container');
 
-    if (albumData.length === 0) {
-      albumFeed.innerHTML = `
-        <div style="text-align: center; padding: 60px 20px; opacity: 0.7;">
-          <p style="font-size: 1.1rem; font-weight: 600;">No media in the album yet.</p>
-          <p style="font-size: 0.85rem; margin-top: 6px;">Click "ADD YOURS NOW" to upload the first photo or video!</p>
-        </div>
-      `;
-      updateSelectionUI();
-      return;
-    }
+// Initialize Realtime Sync & Listeners
+initRealtimeListener();
+attachEventListeners();
 
-    // Group items by date string
-    const groups = {};
-    albumData.forEach(item => {
-      const dateKey = item.date || 'UNSPECIFIED DATE';
-      if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(item);
-    });
-
-    // Render grouped sections
-    Object.keys(groups).forEach(dateKey => {
-      const section = document.createElement('section');
-      section.className = 'date-section';
-
-      const header = document.createElement('div');
-      header.className = 'date-header';
-      header.innerHTML = `<span class="date-dot">•</span> <span>${escapeHtml(dateKey)}</span>`;
-      section.appendChild(header);
-
-      const grid = document.createElement('div');
-      grid.className = 'media-grid';
-
-      groups[dateKey].forEach(item => {
-        const card = createMediaCard(item);
-        grid.appendChild(card);
+// Listen to Firestore Changes in Real Time (Syncs across all users globally)
+function initRealtimeListener() {
+  const q = query(photosCollection, orderBy("timestamp", "desc"));
+  
+  onSnapshot(q, (snapshot) => {
+    albumData = [];
+    snapshot.forEach((docSnap) => {
+      albumData.push({
+        id: docSnap.id,
+        ...docSnap.data()
       });
-
-      section.appendChild(grid);
-      albumFeed.appendChild(section);
     });
+    renderFeed();
+  }, (error) => {
+    console.error("Firestore connection error:", error);
+    showToast("Failed to load global feed");
+  });
+}
 
-    updateSelectionUI();
-  }
+// Render dynamic Date-grouped 4-column feed
+function renderFeed() {
+  albumFeed.innerHTML = '';
 
-  // Create single media element card
-  function createMediaCard(item) {
-    const card = document.createElement('div');
-    card.className = `media-card ${selectedIds.has(item.id) ? 'selected' : ''}`;
-    card.dataset.id = item.id;
-
-    let mediaTag = '';
-    if (item.type === 'video') {
-      mediaTag = `<video src="${item.url}" class="media-content" muted preload="metadata"></video>
-                  <div class="video-badge">
-                    <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    <span>VIDEO</span>
-                  </div>`;
-    } else {
-      mediaTag = `<img src="${item.url}" alt="Album media" class="media-content" loading="lazy">`;
-    }
-
-    const checkbox = `
-      <div class="checkbox-indicator">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
+  if (albumData.length === 0) {
+    albumFeed.innerHTML = `
+      <div style="text-align: center; padding: 60px 20px; opacity: 0.7;">
+        <p style="font-size: 1.1rem; font-weight: 600;">No media in the album yet.</p>
+        <p style="font-size: 0.85rem; margin-top: 6px;">Click "ADD YOURS NOW" to upload the first photo or video!</p>
       </div>
     `;
+    updateSelectionUI();
+    return;
+  }
 
-    card.innerHTML = mediaTag + checkbox;
+  // Group by date
+  const groups = {};
+  albumData.forEach(item => {
+    const dateKey = item.date || 'UNSPECIFIED DATE';
+    if (!groups[dateKey]) groups[dateKey] = [];
+    groups[dateKey].push(item);
+  });
 
-    // Toggle Selection on Card Click
-    card.addEventListener('click', () => {
+  // Render Grid
+  Object.keys(groups).forEach(dateKey => {
+    const section = document.createElement('section');
+    section.className = 'date-section';
+
+    const header = document.createElement('div');
+    header.className = 'date-header';
+    header.innerHTML = `<span class="date-dot">•</span> <span>${escapeHtml(dateKey)}</span>`;
+    section.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'media-grid';
+
+    groups[dateKey].forEach(item => {
+      const card = createMediaCard(item);
+      grid.appendChild(card);
+    });
+
+    section.appendChild(grid);
+    albumFeed.appendChild(section);
+  });
+
+  updateSelectionUI();
+}
+
+// Create single media element card
+function createMediaCard(item) {
+  const card = document.createElement('div');
+  card.className = `media-card ${selectedIds.has(item.id) ? 'selected' : ''}`;
+  card.dataset.id = item.id;
+
+  let mediaTag = '';
+  if (item.type === 'video') {
+    mediaTag = `<video src="${item.url}" class="media-content" muted preload="metadata"></video>
+                <div class="video-badge">
+                  <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  <span>VIDEO</span>
+                </div>`;
+  } else {
+    mediaTag = `<img src="${item.url}" alt="Album media" class="media-content" loading="lazy">`;
+  }
+
+  const checkbox = `
+    <div class="checkbox-indicator">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+  `;
+
+  card.innerHTML = mediaTag + checkbox;
+
+  // Click handler: preview or toggle selection
+  card.addEventListener('click', (e) => {
+    const isCheckboxClick = e.target.closest('.checkbox-indicator');
+
+    if (isCheckboxClick || selectedIds.size > 0) {
       if (selectedIds.has(item.id)) {
         selectedIds.delete(item.id);
       } else {
@@ -148,261 +185,280 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       card.classList.toggle('selected', selectedIds.has(item.id));
       updateSelectionUI();
-    });
-
-    return card;
-  }
-
-  // Update Header UI for Selection Mode
-  function updateSelectionUI() {
-    const count = selectedIds.size;
-    if (count > 0) {
-      addBtn.classList.add('hidden');
-      selectionBar.classList.remove('hidden');
-      selectedCount.textContent = `${count} Selected`;
     } else {
-      addBtn.classList.remove('hidden');
-      selectionBar.classList.add('hidden');
+      openLightbox(item);
     }
+  });
+
+  return card;
+}
+
+// Open Lightbox Preview Modal
+function openLightbox(item) {
+  activePreviewItem = item;
+  lightboxDateText.textContent = item.date || 'PUBLIC ALBUM';
+
+  if (item.type === 'video') {
+    lightboxImg.classList.add('hidden');
+    lightboxVideo.classList.remove('hidden');
+    lightboxVideo.src = item.url;
+    lightboxVideo.play().catch(() => {});
+  } else {
+    lightboxVideo.classList.add('hidden');
+    lightboxVideo.pause();
+    lightboxVideo.src = '';
+    lightboxImg.classList.remove('hidden');
+    lightboxImg.src = item.url;
   }
 
-  // Event Listeners Registration
-  function attachEventListeners() {
-    // Add Media Flow
-    addBtn.addEventListener('click', () => mediaFileInput.click());
-    mediaFileInput.addEventListener('change', handleFileSelected);
-    cancelUploadBtn.addEventListener('click', closeUploadModal);
-    confirmUploadBtn.addEventListener('click', processUpload);
+  lightboxModal.classList.remove('hidden');
+}
 
-    // Download Flow
-    downloadSelectedBtn.addEventListener('click', () => downloadModal.classList.remove('hidden'));
-    cancelDownloadBtn.addEventListener('click', () => downloadModal.classList.add('hidden'));
-    confirmDownloadBtn.addEventListener('click', processDownload);
+function closeLightbox() {
+  lightboxModal.classList.add('hidden');
+  lightboxVideo.pause();
+  lightboxVideo.src = '';
+  lightboxImg.src = '';
+  activePreviewItem = null;
+}
 
-    // Delete Flow
-    deleteSelectedBtn.addEventListener('click', () => deleteModal.classList.remove('hidden'));
-    cancelDeleteBtn.addEventListener('click', closeDeleteModal);
+// Update Header Selection UI
+function updateSelectionUI() {
+  const count = selectedIds.size;
+  if (count > 0) {
+    addBtn.classList.add('hidden');
+    selectionBar.classList.remove('hidden');
+    selectedCount.textContent = `${count} Selected`;
+  } else {
+    addBtn.classList.remove('hidden');
+    selectionBar.classList.add('hidden');
+  }
+}
 
-    // Hold To Delete Listeners (Touch + Mouse)
-    setupHoldToDelete();
+// Attach UI Event Listeners
+function attachEventListeners() {
+  addBtn.addEventListener('click', () => mediaFileInput.click());
+  mediaFileInput.addEventListener('change', handleFileSelected);
+  cancelUploadBtn.addEventListener('click', closeUploadModal);
+  confirmUploadBtn.addEventListener('click', processUpload);
+
+  downloadSelectedBtn.addEventListener('click', () => downloadModal.classList.remove('hidden'));
+  cancelDownloadBtn.addEventListener('click', () => downloadModal.classList.add('hidden'));
+  confirmDownloadBtn.addEventListener('click', () => processDownload(Array.from(selectedIds)));
+
+  lightboxDownloadBtn.addEventListener('click', () => {
+    if (activePreviewItem) downloadModal.classList.remove('hidden');
+  });
+  lightboxCloseBtn.addEventListener('click', closeLightbox);
+
+  deleteSelectedBtn.addEventListener('click', () => deleteModal.classList.remove('hidden'));
+  cancelDeleteBtn.addEventListener('click', closeDeleteModal);
+
+  setupHoldToDelete();
+}
+
+// Local File Preview Handler
+function handleFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  pendingUploadFile = file;
+  const isVideo = file.type.startsWith('video/');
+  const localPreviewUrl = URL.createObjectURL(file);
+
+  uploadPreviewContainer.classList.remove('hidden');
+  if (isVideo) {
+    uploadPreviewImg.classList.add('hidden');
+    uploadPreviewVideo.classList.remove('hidden');
+    uploadPreviewVideo.src = localPreviewUrl;
+  } else {
+    uploadPreviewVideo.classList.add('hidden');
+    uploadPreviewImg.classList.remove('hidden');
+    uploadPreviewImg.src = localPreviewUrl;
   }
 
-  // Handle Local File Selection
-  function handleFileSelected(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+  uploadModal.classList.remove('hidden');
+}
 
-    pendingUploadFile = file;
-    const fileUrl = URL.createObjectURL(file);
-    const isVideo = file.type.startsWith('video/');
+function closeUploadModal() {
+  uploadModal.classList.add('hidden');
+  uploadPreviewContainer.classList.add('hidden');
+  uploadStatusText.classList.add('hidden');
+  uploadPreviewImg.src = '';
+  uploadPreviewVideo.src = '';
+  uploadSensitiveCheck.checked = false;
+  pendingUploadFile = null;
+  mediaFileInput.value = '';
+  confirmUploadBtn.disabled = false;
+}
 
-    uploadPreviewContainer.classList.remove('hidden');
-    if (isVideo) {
-      uploadPreviewImg.classList.add('hidden');
-      uploadPreviewVideo.classList.remove('hidden');
-      uploadPreviewVideo.src = fileUrl;
-    } else {
-      uploadPreviewVideo.classList.add('hidden');
-      uploadPreviewImg.classList.remove('hidden');
-      uploadPreviewImg.src = fileUrl;
-    }
+// Option B: Auto-convert local file to public hosted URL and store in Firestore
+async function processUpload() {
+  if (!pendingUploadFile) return;
 
-    uploadModal.classList.remove('hidden');
-  }
+  confirmUploadBtn.disabled = true;
+  uploadStatusText.classList.remove('hidden');
+  uploadStatusText.textContent = "Uploading to public host...";
 
-  function closeUploadModal() {
-    uploadModal.classList.add('hidden');
-    uploadPreviewContainer.classList.add('hidden');
-    uploadPreviewImg.src = '';
-    uploadPreviewVideo.src = '';
-    uploadSensitiveCheck.checked = false;
-    pendingUploadFile = null;
-    mediaFileInput.value = '';
-  }
-
-  // Process Media Upload
-  function processUpload() {
-    if (!pendingUploadFile) return;
-
+  try {
+    // Host file on public endpoint
+    const publicUrl = await uploadFileToPublicHost(pendingUploadFile);
+    
     const isVideo = pendingUploadFile.type.startsWith('video/');
-    const fileUrl = URL.createObjectURL(pendingUploadFile);
     const todayStr = getTodayFormatted();
 
-    const newItem = {
-      id: 'media_' + Date.now(),
+    // Save public link metadata to Firestore
+    await addDoc(photosCollection, {
       type: isVideo ? 'video' : 'photo',
-      url: fileUrl,
+      url: publicUrl,
       date: todayStr,
-      isSensitive: uploadSensitiveCheck.checked
-    };
-
-    albumData.unshift(newItem); // Place newest upload at top
-    closeUploadModal();
-    renderFeed();
-  }
-
-  // Process Selected Downloads & Freak Toast Trigger
-  function processDownload() {
-    downloadModal.classList.add('hidden');
-
-    let triggeredFreakToast = false;
-
-    selectedIds.forEach(id => {
-      const item = albumData.find(m => m.id === id);
-      if (item) {
-        if (item.isSensitive) {
-          triggeredFreakToast = true;
-        }
-        // Trigger browser file save
-        const a = document.createElement('a');
-        a.href = item.url;
-        a.download = `breeze_media_${item.id}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
+      isSensitive: uploadSensitiveCheck.checked,
+      timestamp: serverTimestamp()
     });
 
-    if (triggeredFreakToast) {
-      showToast("you're a freak");
+    showToast("Uploaded successfully!");
+    closeUploadModal();
+  } catch (err) {
+    console.error("Upload error:", err);
+    uploadStatusText.textContent = "Upload failed. Try again.";
+    confirmUploadBtn.disabled = false;
+  }
+}
+
+// Free file-to-link host converter
+async function uploadFileToPublicHost(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch('https://tmpfiles.org/api/v1/upload', {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!response.ok) throw new Error('Host server rejected file.');
+
+  const result = await response.json();
+  if (result.status === 'success' && result.data && result.data.url) {
+    // Convert landing URL to direct downloadable/streamable URL
+    return result.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+  } else {
+    throw new Error('Invalid host response.');
+  }
+}
+
+// Process selected downloads & sensitive toast trigger
+function processDownload(idsToDownload) {
+  downloadModal.classList.add('hidden');
+
+  const downloadList = idsToDownload.length > 0 ? idsToDownload : (activePreviewItem ? [activePreviewItem.id] : []);
+  let triggeredFreakToast = false;
+
+  downloadList.forEach(id => {
+    const item = albumData.find(m => m.id === id);
+    if (item) {
+      if (item.isSensitive) triggeredFreakToast = true;
+
+      const a = document.createElement('a');
+      a.href = item.url;
+      a.download = `breeze_media_${item.id}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
+  });
 
-    selectedIds.clear();
-    updateSelectionUI();
-    renderFeed();
+  if (triggeredFreakToast) {
+    showToast("you're a freak");
   }
 
-  // Setup Hold-to-Delete Precision Timer Logic
-  function setupHoldToDelete() {
-    let animationFrameId = null;
+  selectedIds.clear();
+  updateSelectionUI();
+}
 
-    const startHold = (e) => {
-      e.preventDefault();
-      holdStartTime = Date.now();
-      updateHoldProgress();
-    };
+// Hold-to-Delete Listener Setup
+function setupHoldToDelete() {
+  let animationFrameId = null;
 
-    const updateHoldProgress = () => {
-      const elapsed = Date.now() - holdStartTime;
-      const progress = Math.min((elapsed / HOLD_DURATION_MS) * 100, 100);
-      holdProgressFill.style.width = `${progress}%`;
+  const startHold = (e) => {
+    e.preventDefault();
+    holdStartTime = Date.now();
+    updateHoldProgress();
+  };
 
-      if (progress >= 100) {
-        cancelAnimationFrame(animationFrameId);
-        executeDeletion();
-      } else {
-        animationFrameId = requestAnimationFrame(updateHoldProgress);
-      }
-    };
+  const updateHoldProgress = () => {
+    const elapsed = Date.now() - holdStartTime;
+    const progress = Math.min((elapsed / HOLD_DURATION_MS) * 100, 100);
+    holdProgressFill.style.width = `${progress}%`;
 
-    const cancelHold = () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      holdProgressFill.style.width = '0%';
-    };
+    if (progress >= 100) {
+      cancelAnimationFrame(animationFrameId);
+      executeDeletion();
+    } else {
+      animationFrameId = requestAnimationFrame(updateHoldProgress);
+    }
+  };
 
-    // Events
-    holdDeleteBtn.addEventListener('mousedown', startHold);
-    holdDeleteBtn.addEventListener('touchstart', startHold);
-
-    holdDeleteBtn.addEventListener('mouseup', cancelHold);
-    holdDeleteBtn.addEventListener('mouseleave', cancelHold);
-    holdDeleteBtn.addEventListener('touchend', cancelHold);
-  }
-
-  function executeDeletion() {
-    albumData = albumData.filter(item => !selectedIds.has(item.id));
-    selectedIds.clear();
-    closeDeleteModal();
-    renderFeed();
-  }
-
-  function closeDeleteModal() {
-    deleteModal.classList.add('hidden');
+  const cancelHold = () => {
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
     holdProgressFill.style.width = '0%';
+  };
+
+  holdDeleteBtn.addEventListener('mousedown', startHold);
+  holdDeleteBtn.addEventListener('touchstart', startHold);
+
+  holdDeleteBtn.addEventListener('mouseup', cancelHold);
+  holdDeleteBtn.addEventListener('mouseleave', cancelHold);
+  holdDeleteBtn.addEventListener('touchend', cancelHold);
+}
+
+// Execute Realtime Deletion from Firestore
+async function executeDeletion() {
+  const idsToDelete = Array.from(selectedIds);
+  selectedIds.clear();
+  closeDeleteModal();
+
+  for (const id of idsToDelete) {
+    try {
+      await deleteDoc(doc(db, "photos", id));
+    } catch (err) {
+      console.error("Failed to delete document:", id, err);
+    }
   }
 
-  // Toast Notification Display
-  function showToast(message) {
-    const toast = document.createElement('div');
-    toast.className = 'liquid-toast';
-    toast.textContent = message;
-    toastContainer.appendChild(toast);
+  showToast("Deleted selected item(s)");
+}
 
-    setTimeout(() => {
-      toast.remove();
-    }, 3000);
-  }
+function closeDeleteModal() {
+  deleteModal.classList.add('hidden');
+  holdProgressFill.style.width = '0%';
+}
 
-  // Utilities
-  function getTodayFormatted() {
-    const options = { month: 'short', day: 'numeric', year: 'numeric' };
-    return 'TODAY • ' + new Date().toLocaleDateString('en-US', options).toUpperCase();
-  }
+// Toast Display
+function showToast(message) {
+  const toast = document.createElement('div');
+  toast.className = 'liquid-toast';
+  toast.textContent = message;
+  toastContainer.appendChild(toast);
 
-  function escapeHtml(str) {
-    return str.replace(/[&<>"']/g, (m) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#039;'
-    })[m]);
-  }
+  setTimeout(() => {
+    toast.remove();
+  }, 3000);
+}
 
-  // Fallback Sample Data if photos.json is missing or running locally without web server
-  function getFallbackData() {
-    return [
-      {
-        id: "demo_1",
-        type: "photo",
-        url: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop&q=80",
-        date: "TODAY",
-        isSensitive: false
-      },
-      {
-        id: "demo_2",
-        type: "photo",
-        url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80",
-        date: "TODAY",
-        isSensitive: false
-      },
-      {
-        id: "demo_3",
-        type: "photo",
-        url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop&q=80",
-        date: "TODAY",
-        isSensitive: true
-      },
-      {
-        id: "demo_4",
-        type: "video",
-        url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        date: "YESTERDAY",
-        isSensitive: false
-      },
-      {
-        id: "demo_5",
-        type: "photo",
-        url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800&auto=format&fit=crop&q=80",
-        date: "YESTERDAY",
-        isSensitive: false
-      },
-      {
-        id: "demo_6",
-        type: "photo",
-        url: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=800&auto=format&fit=crop&q=80",
-        date: "YESTERDAY",
-        isSensitive: false
-      },
-      {
-        id: "demo_7",
-        type: "photo",
-        url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800&auto=format&fit=crop&q=80",
-        date: "SEPT 15, 2026",
-        isSensitive: true
-      }
-    ];
-  }
-});
+// Utilities
+function getTodayFormatted() {
+  const options = { month: 'short', day: 'numeric', year: 'numeric' };
+  return 'TODAY • ' + new Date().toLocaleDateString('en-US', options).toUpperCase();
+}
+
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  })[m]);
+}
+
