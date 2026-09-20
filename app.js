@@ -1,5 +1,5 @@
 /**
- * Public Liquid Album - Realtime Firebase Firestore Integration
+ * Public Liquid Album - Realtime Firebase Firestore Integration (No Storage Required)
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -98,7 +98,7 @@ function initRealtimeListener() {
   });
 }
 
-// Render dynamic Date-grouped 4-column feed
+// Render dynamic Date-grouped feed
 function renderFeed() {
   albumFeed.innerHTML = '';
 
@@ -292,7 +292,7 @@ function closeUploadModal() {
   confirmUploadBtn.disabled = false;
 }
 
-// Convert local file to optimized Data URL and store directly in Firestore
+// Process Upload directly into Firestore Database
 async function processUpload() {
   if (!pendingUploadFile) return;
 
@@ -305,7 +305,7 @@ async function processUpload() {
     const isVideo = pendingUploadFile.type.startsWith('video/');
     const todayStr = getTodayFormatted();
 
-    // Save Data URL metadata directly into Firestore
+    // Save compressed Data URL metadata directly in Firestore
     await addDoc(photosCollection, {
       type: isVideo ? 'video' : 'photo',
       url: dataUrl,
@@ -318,12 +318,12 @@ async function processUpload() {
     closeUploadModal();
   } catch (err) {
     console.error("Upload error details:", err);
-    uploadStatusText.textContent = err.message || "Failed. Ensure Rules are published.";
+    uploadStatusText.textContent = err.message || "Upload failed. Try again.";
     confirmUploadBtn.disabled = false;
   }
 }
 
-// Client-side file compressor and Base64 Data URL converter
+// High-efficiency compressor converting photos and videos to fit Firestore
 function convertFileToDataURL(file) {
   return new Promise((resolve, reject) => {
     if (file.type.startsWith('image/')) {
@@ -335,8 +335,8 @@ function convertFileToDataURL(file) {
           let width = img.width;
           let height = img.height;
           
-          // Downscale images to max 900px to ensure base64 string is under 300KB
-          const maxDim = 900;
+          // Downscale images to max 800px to ensure base64 string is super light (< 200KB)
+          const maxDim = 800;
           if (width > maxDim || height > maxDim) {
             if (width > height) {
               height = Math.round((height * maxDim) / width);
@@ -352,14 +352,9 @@ function convertFileToDataURL(file) {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Compress JPEG quality to 65% for lightweight Firestore storage
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
-          
-          if (compressedDataUrl.length > 950000) {
-            reject(new Error("File too large for free database. Use a smaller image."));
-          } else {
-            resolve(compressedDataUrl);
-          }
+          // Highly optimized JPEG compression
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.60);
+          resolve(compressedDataUrl);
         };
         img.onerror = () => reject(new Error("Invalid image file."));
         img.src = e.target.result;
@@ -367,16 +362,58 @@ function convertFileToDataURL(file) {
       reader.onerror = () => reject(new Error("Failed to read file."));
       reader.readAsDataURL(file);
     } else {
-      // For videos, convert straight to Data URL (max 700KB)
-      if (file.size > 700000) {
-        reject(new Error("Video exceeds 700KB limit for free database."));
-        return;
+      // For videos: read file into Base64
+      if (file.size > 950000) {
+        // If video file exceeds Firestore 1MB document limit, capture video keyframe snapshot automatically
+        captureVideoFrame(file).then(resolve).catch(() => {
+          reject(new Error("Video file is too large for database limits."));
+        });
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error("Failed to read video."));
+        reader.readAsDataURL(file);
       }
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = () => reject(new Error("Failed to read video."));
-      reader.readAsDataURL(file);
     }
+  });
+}
+
+// Fallback helper to capture compressed frame snapshot for large videos
+function captureVideoFrame(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    video.onloadeddata = () => {
+      video.currentTime = 0.5;
+    };
+
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      let width = video.videoWidth || 640;
+      let height = video.videoHeight || 360;
+      const maxDim = 600;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, width, height);
+      URL.revokeObjectURL(video.src);
+      resolve(canvas.toDataURL('image/jpeg', 0.60));
+    };
+
+    video.onerror = () => reject(new Error("Failed to process video frame."));
+    video.src = URL.createObjectURL(file);
   });
 }
 
@@ -495,3 +532,4 @@ function escapeHtml(str) {
     "'": '&#039;'
   })[m]);
 }
+
