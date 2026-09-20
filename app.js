@@ -1,6 +1,5 @@
 /**
- * Public Liquid Album - Realtime Firebase Firestore Integration
- * Full playable video and image support without Firebase Storage requirements.
+ * Public Liquid Album - Cloudinary Integration (Playable Videos)
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -15,6 +14,10 @@ import {
   orderBy, 
   serverTimestamp 
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// Cloudinary Credentials
+const CLOUDINARY_CLOUD_NAME = "vvachyus";
+const CLOUDINARY_UPLOAD_PRESET = "public album";
 
 // Firebase Configuration
 const firebaseConfig = {
@@ -76,11 +79,9 @@ const lightboxDownloadBtn = document.getElementById('lightbox-download-btn');
 
 const toastContainer = document.getElementById('toast-container');
 
-// Initialize Realtime Sync & Listeners
 initRealtimeListener();
 attachEventListeners();
 
-// Listen to Firestore Changes in Real Time (Syncs across all users globally)
 function initRealtimeListener() {
   const q = query(photosCollection, orderBy("timestamp", "desc"));
   
@@ -99,16 +100,6 @@ function initRealtimeListener() {
   });
 }
 
-// Check if media URL is a playable video format
-function isPlayableVideo(item) {
-  if (item.type !== 'video') return false;
-  if (!item.url) return false;
-  // If stored as old image fallback, treat as photo so lightbox/feed opens properly
-  if (item.url.startsWith('data:image/')) return false;
-  return true;
-}
-
-// Render dynamic Date-grouped feed
 function renderFeed() {
   albumFeed.innerHTML = '';
 
@@ -123,7 +114,6 @@ function renderFeed() {
     return;
   }
 
-  // Group by date
   const groups = {};
   albumData.forEach(item => {
     const dateKey = item.date || 'UNSPECIFIED DATE';
@@ -131,7 +121,6 @@ function renderFeed() {
     groups[dateKey].push(item);
   });
 
-  // Render Grid
   Object.keys(groups).forEach(dateKey => {
     const section = document.createElement('section');
     section.className = 'date-section';
@@ -156,14 +145,13 @@ function renderFeed() {
   updateSelectionUI();
 }
 
-// Create single media element card
 function createMediaCard(item) {
   const card = document.createElement('div');
   card.className = `media-card ${selectedIds.has(item.id) ? 'selected' : ''}`;
   card.dataset.id = item.id;
 
   let mediaTag = '';
-  if (isPlayableVideo(item)) {
+  if (item.type === 'video') {
     mediaTag = `<video src="${item.url}" class="media-content" muted playsinline preload="metadata"></video>
                 <div class="video-badge">
                   <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
@@ -183,7 +171,6 @@ function createMediaCard(item) {
 
   card.innerHTML = mediaTag + checkbox;
 
-  // Click handler: preview or toggle selection
   card.addEventListener('click', (e) => {
     const isCheckboxClick = e.target.closest('.checkbox-indicator');
 
@@ -203,12 +190,11 @@ function createMediaCard(item) {
   return card;
 }
 
-// Open Lightbox Preview Modal
 function openLightbox(item) {
   activePreviewItem = item;
   lightboxDateText.textContent = item.date || 'PUBLIC ALBUM';
 
-  if (isPlayableVideo(item)) {
+  if (item.type === 'video') {
     lightboxImg.classList.add('hidden');
     lightboxVideo.classList.remove('hidden');
     lightboxVideo.src = item.url;
@@ -233,7 +219,6 @@ function closeLightbox() {
   activePreviewItem = null;
 }
 
-// Update Header Selection UI
 function updateSelectionUI() {
   const count = selectedIds.size;
   if (count > 0) {
@@ -246,7 +231,6 @@ function updateSelectionUI() {
   }
 }
 
-// Attach UI Event Listeners
 function attachEventListeners() {
   addBtn.addEventListener('click', () => mediaFileInput.click());
   mediaFileInput.addEventListener('change', handleFileSelected);
@@ -268,7 +252,6 @@ function attachEventListeners() {
   setupHoldToDelete();
 }
 
-// Local File Preview Handler
 function handleFileSelected(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -304,23 +287,36 @@ function closeUploadModal() {
   confirmUploadBtn.disabled = false;
 }
 
-// Process Upload directly into Firestore Database
+// Upload File directly to Cloudinary REST API
 async function processUpload() {
   if (!pendingUploadFile) return;
 
   confirmUploadBtn.disabled = true;
   uploadStatusText.classList.remove('hidden');
-  uploadStatusText.textContent = "Processing and saving...";
+  uploadStatusText.textContent = "Uploading media to Cloudinary...";
 
   try {
-    const dataUrl = await convertFileToDataURL(pendingUploadFile);
     const isVideo = pendingUploadFile.type.startsWith('video/');
+    const resourceType = isVideo ? 'video' : 'image';
+    
+    const formData = new FormData();
+    formData.append('file', pendingUploadFile);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`, {
+      method: 'POST',
+      body: formData
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || "Cloudinary upload failed");
+
+    const fileUrl = data.secure_url;
     const todayStr = getTodayFormatted();
 
-    // Save playable Data URL directly in Firestore
     await addDoc(photosCollection, {
       type: isVideo ? 'video' : 'photo',
-      url: dataUrl,
+      url: fileUrl,
       date: todayStr,
       isSensitive: uploadSensitiveCheck.checked,
       timestamp: serverTimestamp()
@@ -330,157 +326,11 @@ async function processUpload() {
     closeUploadModal();
   } catch (err) {
     console.error("Upload error details:", err);
-    uploadStatusText.textContent = err.message || "Upload failed. Try a smaller file.";
+    uploadStatusText.textContent = err.message || "Upload failed. Check Cloudinary settings.";
     confirmUploadBtn.disabled = false;
   }
 }
 
-// Convert files to playable Data URLs
-function convertFileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    if (file.type.startsWith('image/')) {
-      // Compress photos down to high quality JPEG (< 200 KB)
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          
-          const maxDim = 800;
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            } else {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
-          resolve(compressedDataUrl);
-        };
-        img.onerror = () => reject(new Error("Invalid image file."));
-        img.src = e.target.result;
-      };
-      reader.onerror = () => reject(new Error("Failed to read image file."));
-      reader.readAsDataURL(file);
-    } else if (file.type.startsWith('video/')) {
-      // Small videos (< 900 KB) read directly into video data URL
-      if (file.size <= 900000) {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = () => reject(new Error("Failed to read video file."));
-        reader.readAsDataURL(file);
-      } else {
-        // Larger videos are re-encoded into 360p WebM format so they play natively
-        compressVideoToDataURL(file).then(resolve).catch(reject);
-      }
-    } else {
-      reject(new Error("Unsupported file type."));
-    }
-  });
-}
-
-// Re-encode videos to lightweight WebM format under 950KB for playable Firestore storage
-function compressVideoToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
-    const objectUrl = URL.createObjectURL(file);
-
-    video.onloadedmetadata = () => {
-      const canvas = document.createElement('canvas');
-      let w = video.videoWidth || 480;
-      let h = video.videoHeight || 360;
-      const maxDim = 360;
-      
-      if (w > maxDim || h > maxDim) {
-        if (w > h) {
-          h = Math.round((h * maxDim) / w);
-          w = maxDim;
-        } else {
-          w = Math.round((w * maxDim) / h);
-          h = maxDim;
-        }
-      }
-
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-
-      const stream = canvas.captureStream(15);
-      let mimeType = 'video/webm;codecs=vp8';
-      if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
-
-      let mediaRecorder;
-      try {
-        mediaRecorder = new MediaRecorder(stream, {
-          mimeType: mimeType,
-          videoBitsPerSecond: 250000
-        });
-      } catch (err) {
-        URL.revokeObjectURL(objectUrl);
-        return reject(new Error("Video is too large for database. Select a shorter video clip."));
-      }
-
-      const chunks = [];
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        URL.revokeObjectURL(objectUrl);
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        
-        if (blob.size > 950000) {
-          return reject(new Error("Video exceeds 950KB limit for database. Please select a shorter clip."));
-        }
-
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = () => reject(new Error("Failed to process compressed video."));
-        reader.readAsDataURL(blob);
-      };
-
-      video.play().then(() => {
-        mediaRecorder.start(100);
-        const maxDuration = Math.min(video.duration || 10, 15);
-
-        const drawFrame = () => {
-          if (!video.paused && !video.ended && video.currentTime <= maxDuration) {
-            ctx.drawImage(video, 0, 0, w, h);
-            requestAnimationFrame(drawFrame);
-          } else {
-            if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-          }
-        };
-        drawFrame();
-      }).catch(() => {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error("Video clip is too large. Please select a shorter video."));
-      });
-    };
-
-    video.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Unable to read video file."));
-    };
-
-    video.src = objectUrl;
-  });
-}
-
-// Process selected downloads & sensitive toast trigger
 function processDownload(idsToDownload) {
   downloadModal.classList.add('hidden');
 
@@ -510,7 +360,6 @@ function processDownload(idsToDownload) {
   updateSelectionUI();
 }
 
-// Hold-to-Delete Listener Setup
 function setupHoldToDelete() {
   let animationFrameId = null;
 
@@ -546,7 +395,6 @@ function setupHoldToDelete() {
   holdDeleteBtn.addEventListener('touchend', cancelHold);
 }
 
-// Execute Realtime Deletion from Firestore
 async function executeDeletion() {
   const idsToDelete = Array.from(selectedIds);
   selectedIds.clear();
@@ -568,7 +416,6 @@ function closeDeleteModal() {
   holdProgressFill.style.width = '0%';
 }
 
-// Toast Display
 function showToast(message) {
   const toast = document.createElement('div');
   toast.className = 'liquid-toast';
@@ -580,7 +427,6 @@ function showToast(message) {
   }, 3000);
 }
 
-// Utilities
 function getTodayFormatted() {
   const options = { month: 'short', day: 'numeric', year: 'numeric' };
   return 'TODAY • ' + new Date().toLocaleDateString('en-US', options).toUpperCase();
