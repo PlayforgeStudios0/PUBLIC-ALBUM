@@ -17,7 +17,7 @@ import {
 
 // Cloudinary Credentials
 const CLOUDINARY_CLOUD_NAME = "vvachyus";
-const CLOUDINARY_UPLOAD_PRESET = "public album";
+const CLOUDINARY_UPLOAD_PRESET = "public_album";
 
 // Firebase Configuration
 const firebaseConfig = {
