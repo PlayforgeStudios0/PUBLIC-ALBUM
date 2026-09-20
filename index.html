@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Public Album</title>
-  <!-- Google Fonts & SVG Icons -->
+  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -24,13 +24,13 @@
     </div>
 
     <div class="header-actions">
-      <!-- Default Action -->
+      <!-- Default Action Button -->
       <button id="add-btn" class="liquid-btn primary-btn">
         <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         <span>ADD YOURS NOW</span>
       </button>
 
-      <!-- Selection Actions (Hidden by default) -->
+      <!-- Selection Action Bar (Hidden by default) -->
       <div id="selection-bar" class="selection-bar hidden">
         <span id="selected-count" class="selected-count">0 Selected</span>
         <button id="download-selected-btn" class="liquid-btn icon-btn" title="Download Selected">
@@ -43,15 +43,15 @@
     </div>
   </header>
 
-  <!-- Main Feed Container -->
+  <!-- Main Feed Container (4 x Infinite Scrollable Grid) -->
   <main id="album-feed" class="album-feed">
-    <!-- Dynamic Date Sections Rendered Here -->
+    <!-- Dynamic Realtime Items Rendered Here -->
   </main>
 
   <!-- Hidden File Input -->
   <input type="file" id="media-file-input" accept="image/*,video/*" class="hidden-input">
 
-  <!-- Modal 1: Add / Upload Disclaimer Modal -->
+  <!-- Modal 1: Upload Modal -->
   <div id="upload-modal" class="liquid-modal-backdrop hidden">
     <div class="liquid-modal-card">
       <div class="modal-icon-wrapper">
@@ -59,13 +59,14 @@
       </div>
       <h2 class="modal-title">Public Upload Agreement</h2>
       <div class="modal-body">
-        <p>By proceeding, you explicitly authorize this photo/video to be publicly published in this shared web album.</p>
-        <p class="modal-subtext">You confirm that you hold ownership or necessary authorization for this media. The platform and site owner assume no liability or responsibility for public exposure, downloads, or third-party distribution resulting from this upload.</p>
+        <p>By proceeding, you explicitly authorize this photo/video to be publicly published in this shared web album for all visitors.</p>
         
         <div id="upload-preview-container" class="preview-container hidden">
           <img id="upload-preview-img" src="" alt="Preview" class="preview-media hidden">
           <video id="upload-preview-video" controls class="preview-media hidden"></video>
         </div>
+
+        <div id="upload-status-text" class="upload-status-text hidden">Hosting file to public network...</div>
 
         <label class="sensitivity-checkbox-label">
           <input type="checkbox" id="upload-sensitive-check">
@@ -79,7 +80,7 @@
     </div>
   </div>
 
-  <!-- Modal 2: Download Disclaimer Modal -->
+  <!-- Modal 2: Download Notice Modal -->
   <div id="download-modal" class="liquid-modal-backdrop hidden">
     <div class="liquid-modal-card">
       <div class="modal-icon-wrapper info-icon">
@@ -87,8 +88,8 @@
       </div>
       <h2 class="modal-title">Download Notice & Liability</h2>
       <div class="modal-body">
-        <p>You are about to download media uploaded by community users.</p>
-        <p class="modal-subtext">The platform and site owner are not liable if the copyright owner or creator of the photo/video becomes aware of or disputes this content being shared or saved. You assume all responsibility for saved files.</p>
+        <p>You are about to download community media.</p>
+        <p class="modal-subtext">The platform and site owner assume no liability for third-party files saved from this album.</p>
       </div>
       <div class="modal-actions">
         <button id="cancel-download-btn" class="liquid-btn modal-cancel-btn">Cancel</button>
@@ -105,8 +106,8 @@
       </div>
       <h2 class="modal-title">Confirm Delete</h2>
       <div class="modal-body">
-        <p>Are you sure you want to permanently delete the selected item(s)?</p>
-        <p class="modal-subtext">To prevent accidental deletion, press and hold the delete button for 1.5 seconds.</p>
+        <p>Are you sure you want to permanently remove the selected item(s) from the shared cloud database?</p>
+        <p class="modal-subtext">Press and hold the delete button for 1.5 seconds to confirm.</p>
       </div>
       <div class="modal-actions">
         <button id="cancel-delete-btn" class="liquid-btn modal-cancel-btn">Cancel</button>
@@ -118,9 +119,32 @@
     </div>
   </div>
 
+  <!-- Modal 4: Media Preview Lightbox Modal -->
+  <div id="lightbox-modal" class="liquid-modal-backdrop hidden">
+    <div class="lightbox-card">
+      <button id="lightbox-close-btn" class="lightbox-close-btn" title="Close Preview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+
+      <div class="lightbox-media-container">
+        <img id="lightbox-img" src="" alt="Full Preview" class="lightbox-media hidden">
+        <video id="lightbox-video" controls autoplay class="lightbox-media hidden"></video>
+      </div>
+
+      <div class="lightbox-bar">
+        <span id="lightbox-date-text" class="lightbox-date-text"></span>
+        <button id="lightbox-download-btn" class="liquid-btn icon-btn" title="Download This Media">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container -->
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="app.js"></script>
+  <!-- Module Script -->
+  <script type="module" src="app.js"></script>
 </body>
 </html>
+
