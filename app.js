@@ -298,7 +298,7 @@ async function processUpload() {
 
   confirmUploadBtn.disabled = true;
   uploadStatusText.classList.remove('hidden');
-  uploadStatusText.textContent = "Processing and saving...";
+  uploadStatusText.textContent = "Compressing & saving to database...";
 
   try {
     const dataUrl = await convertFileToDataURL(pendingUploadFile);
@@ -317,8 +317,8 @@ async function processUpload() {
     showToast("Uploaded successfully!");
     closeUploadModal();
   } catch (err) {
-    console.error("Upload error:", err);
-    uploadStatusText.textContent = err.message || "Upload failed. Try again.";
+    console.error("Upload error details:", err);
+    uploadStatusText.textContent = err.message || "Failed. Ensure Rules are published.";
     confirmUploadBtn.disabled = false;
   }
 }
@@ -335,8 +335,8 @@ function convertFileToDataURL(file) {
           let width = img.width;
           let height = img.height;
           
-          // Downscale large photos to fit comfortably within Firestore
-          const maxDim = 1200;
+          // Downscale images to max 900px to ensure base64 string is under 300KB
+          const maxDim = 900;
           if (width > maxDim || height > maxDim) {
             if (width > height) {
               height = Math.round((height * maxDim) / width);
@@ -352,8 +352,14 @@ function convertFileToDataURL(file) {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Compress quality to 75%
-          resolve(canvas.toDataURL('image/jpeg', 0.75));
+          // Compress JPEG quality to 65% for lightweight Firestore storage
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+          
+          if (compressedDataUrl.length > 950000) {
+            reject(new Error("File too large for free database. Use a smaller image."));
+          } else {
+            resolve(compressedDataUrl);
+          }
         };
         img.onerror = () => reject(new Error("Invalid image file."));
         img.src = e.target.result;
@@ -361,9 +367,9 @@ function convertFileToDataURL(file) {
       reader.onerror = () => reject(new Error("Failed to read file."));
       reader.readAsDataURL(file);
     } else {
-      // For videos, convert straight to Data URL
-      if (file.size > 900000) {
-        reject(new Error("Video exceeds 900KB size limit."));
+      // For videos, convert straight to Data URL (max 700KB)
+      if (file.size > 700000) {
+        reject(new Error("Video exceeds 700KB limit for free database."));
         return;
       }
       const reader = new FileReader();
@@ -489,4 +495,3 @@ function escapeHtml(str) {
     "'": '&#039;'
   })[m]);
 }
-
